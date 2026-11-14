@@ -135,17 +135,16 @@ local function restoreCollide()
 end
 
 ------------------------------------------------------------------------
--- Invisible (ทดลอง)
--- 1) ย้ายตัวละครไปจอดไกลๆ ให้เซิร์ฟเวอร์เห็นตำแหน่งนั้น
--- 2) เชื่อม (Weld) ตัวละครเข้ากับ part ที่สร้างฝั่ง client แล้วตั้ง RootPriority สูงสุด
---    ให้ part นี้เป็น "ตัวหลัก" ของ assembly แทน HumanoidRootPart
--- 3) เซิร์ฟเวอร์ไม่รู้จัก part นี้ จึงรับตำแหน่งที่ client ส่งไม่ได้
---    คนอื่นจะเห็นตัวเราค้างอยู่ที่จุดจอด ส่วนเราย้ายกลับมาเดินที่เดิมได้
+-- Invisible (ทดลอง) - วิธี desync
+-- ลำดับในแต่ละเฟรมของ Roblox:  RenderStepped -> วาดภาพ -> ฟิสิกส์ -> Heartbeat -> ส่งตำแหน่งไปเซิร์ฟเวอร์
+-- 1) ตอน Heartbeat ย้ายตัวไปซ่อนใต้พื้น  => เซิร์ฟเวอร์/คนอื่นได้ตำแหน่งที่ซ่อน
+-- 2) ตอนเริ่ม RenderStepped ย้ายกลับที่จริง => จอเราและฟิสิกส์ใช้ตำแหน่งจริงตามปกติ
 ------------------------------------------------------------------------
-local INVIS_PARK_OFFSET = Vector3.new(0, 2000, 0) -- จุดจอดตัวละคร (สูงขึ้นไปบนฟ้า)
-local INVIS_GHOST_ALPHA = 0.6                     -- ความโปร่งใสที่เราเห็นตัวเอง (เห็นแค่เรา)
+local INVIS_HIDE_OFFSET = Vector3.new(0, -60, 0) -- ตำแหน่งที่คนอื่นเห็น (ใต้ตัวเรา 60 studs)
+local INVIS_GHOST_ALPHA = 0.6                    -- ความโปร่งใสที่เราเห็นตัวเอง (เห็นแค่เรา)
+local INVIS_BIND        = "FlyAnywhereInvisRestore"
 
-local invisPart
+local invisRealCF
 local invisBusy = false
 local originalTransparency = setmetatable({}, { __mode = "k" })
 
@@ -167,54 +166,26 @@ local function setLocalGhost(on)
     end
 end
 
+-- คืนตำแหน่งจริงก่อนกล้อง/การวาดภาพทำงาน
+local function restoreRealCF()
+    if invisRealCF and root and root.Parent then
+        root.CFrame = invisRealCF
+    end
+    invisRealCF = nil
+end
+
 local function startInvisible()
     if not refreshCharacter() then return false end
-    local character = player.Character
-    local saved = root.CFrame
-
-    -- 1) ไปจอดไว้ แล้วรอให้ตำแหน่งส่งถึงเซิร์ฟเวอร์
-    character:PivotTo(saved + INVIS_PARK_OFFSET)
-    task.wait(0.3)
-    if not (root and root.Parent) then return false end
-
-    -- 2) part ฝั่ง client ที่จะเป็นตัวหลักของ assembly
-    invisPart = Instance.new("Part")
-    invisPart.Name                     = "InvisAnchor"
-    invisPart.Size                     = Vector3.new(1, 1, 1)
-    invisPart.Transparency             = 1
-    invisPart.CanCollide               = false
-    invisPart.CanTouch                 = false
-    invisPart.CanQuery                 = false
-    invisPart.CustomPhysicalProperties = PhysicalProperties.new(0.01, 0, 0)
-    invisPart.RootPriority             = 127
-    invisPart.CFrame                   = root.CFrame
-    invisPart.Parent                   = workspace
-
-    local weld = Instance.new("Weld")
-    weld.Part0  = invisPart
-    weld.Part1  = root
-    weld.Parent = invisPart
-
-    -- 3) ย้ายตัวเรากลับที่เดิม (เฉพาะฝั่งเรา)
-    task.wait()
-    invisPart.CFrame = saved
-    root.AssemblyLinearVelocity = Vector3.zero
-
+    invisRealCF = nil
+    RunService:BindToRenderStep(INVIS_BIND, Enum.RenderPriority.First.Value, restoreRealCF)
     setLocalGhost(true)
     return true
 end
 
 local function stopInvisible()
-    local cf = root and root.Parent and root.CFrame
-    if invisPart then
-        invisPart:Destroy()
-        invisPart = nil
-    end
+    pcall(function() RunService:UnbindFromRenderStep(INVIS_BIND) end)
+    restoreRealCF() -- เผื่อกดปิดตอนตัวยังอยู่ที่ตำแหน่งซ่อน
     setLocalGhost(false)
-    -- HumanoidRootPart กลับมาเป็นตัวหลัก เซิร์ฟเวอร์จะเห็นเราที่ตำแหน่งปัจจุบันอีกครั้ง
-    if cf and player.Character then
-        player.Character:PivotTo(cf)
-    end
 end
 
 ------------------------------------------------------------------------
@@ -361,8 +332,7 @@ local function setInvisible(state)
         local success, result = pcall(startInvisible)
         ok = success and result
         if not ok then
-            if invisPart then invisPart:Destroy(); invisPart = nil end
-            setLocalGhost(false)
+            stopInvisible()
             notify("ล่องหนไม่สำเร็จ")
         end
     else
@@ -500,13 +470,13 @@ end)
 -- Noclip ต้องทำใน Stepped (ก่อนคำนวณฟิสิกส์) เพราะ Humanoid จะตั้ง CanCollide กลับทุกเฟรม
 connect(RunService.Stepped, function()
     if Fly.noclip then applyNoclip() end
-    -- ถ้า part ล่องหนหายไป (เช่นเกมลบทิ้ง) ให้กลับสถานะปกติ
-    if Fly.invisible and not invisBusy and not (invisPart and invisPart.Parent) then
-        invisPart = nil
-        setLocalGhost(false)
-        Fly.invisible = false
-        updateUI()
-    end
+end)
+
+-- ล่องหน: หลังฟิสิกส์คำนวณเสร็จ ย้ายตัวไปที่ซ่อนก่อน Roblox ส่งตำแหน่งให้เซิร์ฟเวอร์
+connect(RunService.Heartbeat, function()
+    if not Fly.invisible or not (root and root.Parent) then return end
+    invisRealCF = root.CFrame
+    root.CFrame = invisRealCF + INVIS_HIDE_OFFSET
 end)
 
 ------------------------------------------------------------------------
@@ -515,7 +485,8 @@ end)
 connect(player.CharacterAdded, function()
     Fly.enabled, Fly.up, Fly.down = false, false, false
     table.clear(originalCollide)
-    if invisPart then invisPart:Destroy(); invisPart = nil end
+    pcall(function() RunService:UnbindFromRenderStep(INVIS_BIND) end)
+    invisRealCF = nil
     table.clear(originalTransparency)
     Fly.invisible = false
     cleanupMovers()
@@ -530,7 +501,7 @@ function Fly.Destroy()
     Fly.enabled = false
     Fly.noclip = false
     restoreCollide()
-    if Fly.invisible or invisPart then stopInvisible() end
+    if Fly.invisible then stopInvisible() end
     Fly.invisible = false
     for _, c in ipairs(connections) do c:Disconnect() end
     table.clear(connections)
