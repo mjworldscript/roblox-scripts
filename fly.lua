@@ -603,29 +603,77 @@ end
 
 ------------------------------------------------------------------------
 -- God mode (ทดลอง)
--- เครื่องเราเป็นคนคุมสถานะของ Humanoid ตัวเอง จึงปิดสถานะ Dead ได้ => เลือดหมดก็ไม่ตาย
--- หลอดเลือดเต็มจะเห็นแค่บนจอเรา เลือดจริงบนเซิร์ฟเวอร์ยังลดตามปกติ
+-- เกมส่วนใหญ่ลดเลือดจากฝั่งเซิร์ฟเวอร์ แล้วส่งค่าเลือด 0 มาที่เครื่องเรา ทำให้ตัวละครตาย
+-- วิธีแก้: สร้าง Humanoid ตัวใหม่ในเครื่องเราแทนตัวเดิม ตัวใหม่ไม่ได้ผูกกับเซิร์ฟเวอร์
+-- จึงไม่รับค่าเลือดที่เซิร์ฟเวอร์ลด และเครื่องเราเป็นคนตัดสินว่าตัวละครตายหรือไม่
+-- เสริม: กันตกเหว ถ้าตกลงไปใกล้ระดับที่เกมลบตัวละคร จะวาร์ปกลับจุดล่าสุดที่ยืนบนพื้น
 ------------------------------------------------------------------------
-local godHumanoid, godSaved
+local godHumanoid      -- Humanoid ที่ใช้อยู่ตอนเปิด God (ตัวใหม่ในเครื่องเรา)
+local godOriginal      -- Humanoid ตัวจริงที่ถอดออก เก็บไว้ใส่คืนตอนปิด God
+local godLastSafeCF    -- จุดล่าสุดที่ยืนบนพื้น
+local GOD_VOID_MARGIN = 30
 
-local function applyGod(hum)
-    godHumanoid = hum
-    godSaved = { requiresNeck = hum.RequiresNeck, breakJoints = hum.BreakJointsOnDeath }
+local function lockHumanoid(hum)
     pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
-    hum.RequiresNeck       = false -- หัวหลุดก็ไม่ตาย
-    hum.BreakJointsOnDeath = false
+    pcall(function()
+        hum.RequiresNeck       = false -- หัวหลุดก็ไม่ตาย
+        hum.BreakJointsOnDeath = false
+    end)
+    hum.Health = hum.MaxHealth
+end
+
+-- ให้กล้อง ระบบควบคุม (จอยสติ๊ก/กระโดด) และท่าเดิน ใช้ Humanoid ตัวที่กำหนด
+local function retargetHumanoid(character, hum)
+    workspace.CurrentCamera.CameraSubject = hum
+    pcall(function()
+        local playerModule = player.PlayerScripts:FindFirstChild("PlayerModule")
+        local controls = require(playerModule):GetControls()
+        controls.humanoid = hum
+    end)
+    local animate = character:FindFirstChild("Animate")
+    if animate and animate:IsA("BaseScript") then
+        animate.Disabled = true
+        animate.Disabled = false
+    end
+    refreshCharacter()
+    if Fly.enabled and humanoid then humanoid.PlatformStand = true end
+end
+
+local function swapHumanoid(character, old)
+    old.Archivable = true
+    local new = old:Clone()
+    if not new then return nil end
+    new.Parent = character
+    old.Parent = nil
+    lockHumanoid(new)
+    retargetHumanoid(character, new)
+    return new
+end
+
+local function applyGod()
+    local character = player.Character
+    local hum = character and character:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 or hum == godHumanoid then return end
+    local ok, new = pcall(swapHumanoid, character, hum)
+    if ok and new then
+        godOriginal, godHumanoid = hum, new
+    else
+        -- สลับไม่ได้: ใช้วิธีปิดสถานะตายแทน (กันได้น้อยกว่า)
+        godOriginal, godHumanoid = nil, hum
+        lockHumanoid(hum)
+    end
 end
 
 local function removeGod()
-    local hum = godHumanoid
-    if hum and hum.Parent then
-        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true) end)
-        if godSaved then
-            hum.RequiresNeck       = godSaved.requiresNeck
-            hum.BreakJointsOnDeath = godSaved.breakJoints
-        end
+    local character = player.Character
+    if godOriginal and character and godHumanoid and godHumanoid.Parent == character then
+        godOriginal.Parent = character
+        godHumanoid:Destroy()
+        retargetHumanoid(character, godOriginal)
+    elseif godHumanoid and godHumanoid.Parent then
+        pcall(function() godHumanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true) end)
     end
-    godHumanoid, godSaved = nil, nil
+    godHumanoid, godOriginal, godLastSafeCF = nil, nil, nil
 end
 
 local function setGod(state)
@@ -811,14 +859,28 @@ connect(RunService.Stepped, function()
     end
 end)
 
--- God mode: ปิดสถานะตายกับ Humanoid ปัจจุบัน (รวมตัวใหม่หลังเกิด) และเติมหลอดเลือดบนจอเรา
+-- God mode: สลับ Humanoid (รวมตัวใหม่หลังเกิด) เติมเลือด และกันตกเหว
 connect(RunService.Heartbeat, function()
     if not Fly.god then return end
     local hum = getHumanoid()
     if not hum then return end
-    if hum ~= godHumanoid then applyGod(hum) end
+    if hum ~= godHumanoid then
+        applyGod()
+        hum = godHumanoid
+        if not hum then return end
+    end
     if hum.Health < hum.MaxHealth then
         hum.Health = hum.MaxHealth
+    end
+
+    local cf = currentRealCF()
+    if not cf then return end
+    if cf.Position.Y < workspace.FallenPartsDestroyHeight + GOD_VOID_MARGIN then
+        if godLastSafeCF and teleportToCF(godLastSafeCF + Vector3.new(0, 3, 0)) then
+            notify("กันตกเหว: วาร์ปกลับจุดล่าสุด")
+        end
+    elseif hum.FloorMaterial ~= Enum.Material.Air and not Fly.enabled then
+        godLastSafeCF = cf
     end
 end)
 
@@ -837,7 +899,7 @@ connect(player.CharacterAdded, function()
     table.clear(originalCollide)
     pcall(function() RunService:UnbindFromRenderStep(INVIS_BIND) end)
     invisRealCF = nil
-    godHumanoid, godSaved = nil, nil -- God ยังเปิดค้างไว้ Heartbeat จะ apply กับตัวใหม่
+    godHumanoid, godOriginal, godLastSafeCF = nil, nil, nil -- God ยังเปิดค้างไว้ Heartbeat จะ apply กับตัวใหม่
     table.clear(originalTransparency)
     Fly.invisible = false
     cleanupMovers()
