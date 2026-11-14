@@ -30,6 +30,10 @@ local SPEED_STEP    = 10
 local SPEED_MIN     = 10
 local SPEED_MAX     = 500
 
+local WALK_STEP     = 4
+local WALK_MIN      = 4
+local WALK_MAX      = 200
+
 local Fly = {
     enabled = false,
     noclip    = false,
@@ -141,7 +145,7 @@ end
 -- 2) ตอนเริ่ม RenderStepped ย้ายกลับที่จริง => จอเราและฟิสิกส์ใช้ตำแหน่งจริงตามปกติ
 ------------------------------------------------------------------------
 local INVIS_HIDE_OFFSET = Vector3.new(0, -60, 0) -- ตำแหน่งที่คนอื่นเห็น (ใต้ตัวเรา 60 studs)
-local INVIS_GHOST_ALPHA = 0.6                    -- ความโปร่งใสที่เราเห็นตัวเอง (เห็นแค่เรา)
+local INVIS_GHOST_ALPHA = 0.6                    -- ความโปร่งใสที่เราเห็นตัวเอง (0 = เห็นชัด, 1 = หายทั้งตัว, เห็นแค่เรา)
 local INVIS_BIND        = "FlyAnywhereInvisRestore"
 
 local invisRealCF
@@ -240,7 +244,11 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent         = getGuiParent()
 
 local frame = Instance.new("Frame")
-frame.Size             = UDim2.fromOffset(190, 258)
+local FRAME_WIDTH      = 190
+local FRAME_HEIGHT     = 302
+local TITLE_HEIGHT     = 30
+
+frame.Size             = UDim2.fromOffset(FRAME_WIDTH, FRAME_HEIGHT)
 frame.Position         = UDim2.new(0, 20, 0.35, 0)
 frame.BackgroundColor3 = COLOR_BG
 frame.BorderSizePixel  = 0
@@ -249,7 +257,7 @@ frame.Parent           = gui
 corner(frame, 10)
 
 local title = Instance.new("TextLabel")
-title.Size                   = UDim2.new(1, -36, 0, 30)
+title.Size                   = UDim2.new(1, -70, 0, TITLE_HEIGHT)
 title.Position               = UDim2.fromOffset(10, 0)
 title.BackgroundTransparency = 1
 title.Text                   = "✈ Fly Anywhere"
@@ -263,6 +271,9 @@ title.Parent                 = frame
 local closeBtn = makeButton(frame, "X", UDim2.new(1, -30, 0, 4), UDim2.fromOffset(26, 22))
 closeBtn.TextSize = 14
 closeBtn.BackgroundColor3 = COLOR_OFF
+
+local minBtn = makeButton(frame, "—", UDim2.new(1, -60, 0, 4), UDim2.fromOffset(26, 22))
+minBtn.TextSize = 14
 
 local toggleBtn = makeButton(frame, "FLY: OFF", UDim2.fromOffset(10, 36), UDim2.new(1, -20, 0, 38))
 toggleBtn.BackgroundColor3 = COLOR_OFF
@@ -288,6 +299,24 @@ speedLabel.Font                   = Enum.Font.Gotham
 speedLabel.TextSize               = 15
 speedLabel.Parent                 = frame
 
+-- แถวความเร็ววิ่ง (กดที่ตัวเลขเพื่อรีเซ็ตกลับค่าเดิมของเกม)
+local walkMinusBtn = makeButton(frame, "−", UDim2.fromOffset(10, 256), UDim2.fromOffset(38, 36))
+local walkPlusBtn  = makeButton(frame, "+", UDim2.new(1, -48, 0, 256), UDim2.fromOffset(38, 36))
+
+local walkLabel = Instance.new("TextButton")
+walkLabel.Size                   = UDim2.new(1, -116, 0, 36)
+walkLabel.Position               = UDim2.fromOffset(58, 256)
+walkLabel.BackgroundTransparency = 1
+walkLabel.TextColor3             = COLOR_TEXT
+walkLabel.Font                   = Enum.Font.Gotham
+walkLabel.TextSize               = 15
+walkLabel.Parent                 = frame
+
+local function getHumanoid()
+    local character = player.Character
+    return character and character:FindFirstChildOfClass("Humanoid")
+end
+
 local function updateUI()
     toggleBtn.Text             = Fly.enabled and "FLY: ON" or "FLY: OFF"
     toggleBtn.BackgroundColor3 = Fly.enabled and COLOR_ON or COLOR_OFF
@@ -295,7 +324,24 @@ local function updateUI()
     noclipBtn.BackgroundColor3 = Fly.noclip and COLOR_ON or COLOR_OFF
     invisBtn.Text              = invisBusy and "INVIS: ..." or (Fly.invisible and "INVIS: ON" or "INVIS: OFF")
     invisBtn.BackgroundColor3  = Fly.invisible and COLOR_ON or COLOR_OFF
-    speedLabel.Text            = "Speed: " .. Fly.speed
+    speedLabel.Text            = "Fly: " .. Fly.speed
+
+    local hum  = getHumanoid()
+    local walk = Fly.walkSpeed or (hum and hum.WalkSpeed) or 16
+    walkLabel.Text = "Walk: " .. math.floor(walk + 0.5)
+end
+
+-- ย่อ/ขยายหน้าต่าง: ซ่อนทุกอย่างยกเว้นแถบชื่อ
+local keepVisible = { [title] = true, [closeBtn] = true, [minBtn] = true }
+local function setMinimized(state)
+    Fly.minimized = state
+    for _, child in ipairs(frame:GetChildren()) do
+        if child:IsA("GuiObject") and not keepVisible[child] then
+            child.Visible = not state
+        end
+    end
+    frame.Size  = UDim2.fromOffset(FRAME_WIDTH, state and TITLE_HEIGHT or FRAME_HEIGHT)
+    minBtn.Text = state and "+" or "—"
 end
 
 ------------------------------------------------------------------------
@@ -349,6 +395,27 @@ local function changeSpeed(delta)
     updateUI()
 end
 
+-- ความเร็ววิ่ง: Fly.walkSpeed = nil แปลว่าใช้ค่าของเกมตามปกติ
+local originalWalkSpeed
+local function changeWalkSpeed(delta)
+    local hum = getHumanoid()
+    if not hum then return end
+    if Fly.walkSpeed == nil then
+        originalWalkSpeed = hum.WalkSpeed
+    end
+    local current = Fly.walkSpeed or hum.WalkSpeed
+    Fly.walkSpeed = math.clamp(current + delta, WALK_MIN, WALK_MAX)
+    hum.WalkSpeed = Fly.walkSpeed
+    updateUI()
+end
+
+local function resetWalkSpeed()
+    local hum = getHumanoid()
+    if hum and originalWalkSpeed then hum.WalkSpeed = originalWalkSpeed end
+    Fly.walkSpeed = nil
+    updateUI()
+end
+
 local function isPress(input)
     return input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch
@@ -372,6 +439,10 @@ bindHold(downBtn, "down")
 
 connect(toggleBtn.Activated, function() setFly(not Fly.enabled) end)
 connect(noclipBtn.Activated, function() setNoclip(not Fly.noclip) end)
+connect(minBtn.Activated,       function() setMinimized(not Fly.minimized) end)
+connect(walkMinusBtn.Activated, function() changeWalkSpeed(-WALK_STEP) end)
+connect(walkPlusBtn.Activated,  function() changeWalkSpeed(WALK_STEP) end)
+connect(walkLabel.Activated,    resetWalkSpeed)
 connect(invisBtn.Activated,  function() setInvisible(not Fly.invisible) end)
 connect(minusBtn.Activated,  function() changeSpeed(-SPEED_STEP) end)
 connect(plusBtn.Activated,   function() changeSpeed(SPEED_STEP) end)
@@ -470,6 +541,14 @@ end)
 -- Noclip ต้องทำใน Stepped (ก่อนคำนวณฟิสิกส์) เพราะ Humanoid จะตั้ง CanCollide กลับทุกเฟรม
 connect(RunService.Stepped, function()
     if Fly.noclip then applyNoclip() end
+
+    -- บางเกมรีเซ็ต WalkSpeed เอง ให้ตั้งกลับเป็นค่าที่เราเลือกไว้
+    if Fly.walkSpeed then
+        local hum = getHumanoid()
+        if hum and hum.WalkSpeed ~= Fly.walkSpeed then
+            hum.WalkSpeed = Fly.walkSpeed
+        end
+    end
 end)
 
 -- ล่องหน: หลังฟิสิกส์คำนวณเสร็จ ย้ายตัวไปที่ซ่อนก่อน Roblox ส่งตำแหน่งให้เซิร์ฟเวอร์
@@ -497,6 +576,7 @@ end)
 -- ลบสคริปต์ทั้งหมด
 ------------------------------------------------------------------------
 function Fly.Destroy()
+    if Fly.walkSpeed then resetWalkSpeed() end
     if Fly.enabled then stopFly() end
     Fly.enabled = false
     Fly.noclip = false
