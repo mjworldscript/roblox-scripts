@@ -4,7 +4,7 @@
 
     การควบคุม
       มือถือ : ใช้ปุ่มบน GUI + จอยสติ๊กเดินปกติ (บินไปทางที่กล้องหัน)
-      PC     : F = เปิด/ปิดบิน, N = เปิด/ปิด Noclip, G = เปิด/ปิดล่องหน, E หรือ Space = ขึ้น, Q หรือ LeftCtrl = ลง, WASD = เคลื่อนที่
+      PC     : F = เปิด/ปิดบิน, N = เปิด/ปิด Noclip, G = เปิด/ปิดล่องหน, T = เปิด/ปิดรายชื่อ Teleport, E หรือ Space = ขึ้น, Q หรือ LeftCtrl = ลง, WASD = เคลื่อนที่
 ]]
 
 local Players          = game:GetService("Players")
@@ -281,11 +281,15 @@ toggleBtn.BackgroundColor3 = COLOR_OFF
 local upBtn   = makeButton(frame, "▲ ขึ้น", UDim2.fromOffset(10, 80), UDim2.new(0.5, -14, 0, 38))
 local downBtn = makeButton(frame, "▼ ลง",  UDim2.new(0.5, 4, 0, 80), UDim2.new(0.5, -14, 0, 38))
 
-local noclipBtn = makeButton(frame, "NOCLIP: OFF", UDim2.fromOffset(10, 124), UDim2.new(1, -20, 0, 38))
+local noclipBtn = makeButton(frame, "NOCLIP OFF", UDim2.fromOffset(10, 124), UDim2.new(0.5, -14, 0, 38))
 noclipBtn.BackgroundColor3 = COLOR_OFF
+noclipBtn.TextSize = 13
 
-local invisBtn = makeButton(frame, "INVIS: OFF", UDim2.fromOffset(10, 168), UDim2.new(1, -20, 0, 38))
+local invisBtn = makeButton(frame, "INVIS OFF", UDim2.new(0.5, 4, 0, 124), UDim2.new(0.5, -14, 0, 38))
 invisBtn.BackgroundColor3 = COLOR_OFF
+invisBtn.TextSize = 13
+
+local tpBtn = makeButton(frame, "TELEPORT ▶", UDim2.fromOffset(10, 168), UDim2.new(1, -20, 0, 38))
 
 local minusBtn = makeButton(frame, "−", UDim2.fromOffset(10, 212), UDim2.fromOffset(38, 36))
 local plusBtn  = makeButton(frame, "+", UDim2.new(1, -48, 0, 212), UDim2.fromOffset(38, 36))
@@ -317,12 +321,111 @@ local function getHumanoid()
     return character and character:FindFirstChildOfClass("Humanoid")
 end
 
+------------------------------------------------------------------------
+-- แผง Teleport: รายชื่อผู้เล่น แสดงด้านขวาของหน้าต่างหลัก
+------------------------------------------------------------------------
+local tpPanel = Instance.new("Frame")
+tpPanel.Size             = UDim2.fromOffset(180, FRAME_HEIGHT)
+tpPanel.Position         = UDim2.new(1, 6, 0, 0)
+tpPanel.BackgroundColor3 = COLOR_BG
+tpPanel.BorderSizePixel  = 0
+tpPanel.Visible          = false
+tpPanel.Parent           = frame
+corner(tpPanel, 10)
+
+local tpTitle = Instance.new("TextLabel")
+tpTitle.Size                   = UDim2.new(1, -20, 0, TITLE_HEIGHT)
+tpTitle.Position               = UDim2.fromOffset(10, 0)
+tpTitle.BackgroundTransparency = 1
+tpTitle.Text                   = "เลือกผู้เล่นเพื่อวาร์ป"
+tpTitle.TextColor3             = COLOR_TEXT
+tpTitle.Font                   = Enum.Font.GothamBold
+tpTitle.TextSize               = 14
+tpTitle.TextXAlignment         = Enum.TextXAlignment.Left
+tpTitle.Parent                 = tpPanel
+
+local tpList = Instance.new("ScrollingFrame")
+tpList.Position               = UDim2.fromOffset(8, TITLE_HEIGHT + 4)
+tpList.Size                   = UDim2.new(1, -16, 1, -(TITLE_HEIGHT + 12))
+tpList.BackgroundTransparency = 1
+tpList.BorderSizePixel        = 0
+tpList.ScrollBarThickness     = 4
+tpList.CanvasSize             = UDim2.new()
+tpList.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+tpList.Parent                 = tpPanel
+
+local tpLayout = Instance.new("UIListLayout")
+tpLayout.Padding   = UDim.new(0, 6)
+tpLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tpLayout.Parent    = tpList
+
+local function teleportTo(target)
+    local tChar = target.Character
+    local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+    if not tRoot then
+        notify("ไม่พบตัว " .. target.DisplayName .. " (อาจอยู่ไกลเกินไป)")
+        return
+    end
+    if not refreshCharacter() then
+        notify("ยังไม่พบตัวละคร")
+        return
+    end
+
+    local dest = tRoot.CFrame * CFrame.new(0, 0, 3) -- ไปยืนข้างหลังเป้าหมาย 3 studs
+    root.AssemblyLinearVelocity = Vector3.zero
+    -- ถ้ากำลังล่องหน ตำแหน่งจริงจะถูกคืนตอน RenderStepped จึงต้องแก้ตำแหน่งจริงด้วย
+    if Fly.invisible and invisRealCF then
+        invisRealCF = dest
+    end
+    root.CFrame = dest
+    notify("วาร์ปไปหา " .. target.DisplayName)
+end
+
+local function refreshTpList()
+    for _, child in ipairs(tpList:GetChildren()) do
+        if child:IsA("GuiObject") then child:Destroy() end
+    end
+
+    local others = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then table.insert(others, p) end
+    end
+    table.sort(others, function(a, b) return a.DisplayName:lower() < b.DisplayName:lower() end)
+
+    if #others == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Size                   = UDim2.new(1, -6, 0, 30)
+        empty.BackgroundTransparency = 1
+        empty.Text                   = "ไม่มีผู้เล่นอื่นในเซิร์ฟ"
+        empty.TextColor3             = COLOR_TEXT
+        empty.Font                   = Enum.Font.Gotham
+        empty.TextSize               = 13
+        empty.Parent                 = tpList
+        return
+    end
+
+    for i, p in ipairs(others) do
+        local b = makeButton(tpList, p.DisplayName .. "\n@" .. p.Name, UDim2.new(), UDim2.new(1, -6, 0, 40))
+        b.TextSize     = 13
+        b.TextTruncate = Enum.TextTruncate.AtEnd
+        b.LayoutOrder  = i
+        b.Activated:Connect(function() teleportTo(p) end) -- ปุ่มถูกลบเมื่อรีเฟรช connection หายไปด้วย
+    end
+end
+
+local function setTpOpen(state)
+    Fly.tpOpen = state
+    if state then refreshTpList() end
+    tpPanel.Visible = state and not Fly.minimized
+    tpBtn.Text = state and "TELEPORT ◀" or "TELEPORT ▶"
+end
+
 local function updateUI()
     toggleBtn.Text             = Fly.enabled and "FLY: ON" or "FLY: OFF"
     toggleBtn.BackgroundColor3 = Fly.enabled and COLOR_ON or COLOR_OFF
-    noclipBtn.Text             = Fly.noclip and "NOCLIP: ON" or "NOCLIP: OFF"
+    noclipBtn.Text             = Fly.noclip and "NOCLIP ON" or "NOCLIP OFF"
     noclipBtn.BackgroundColor3 = Fly.noclip and COLOR_ON or COLOR_OFF
-    invisBtn.Text              = invisBusy and "INVIS: ..." or (Fly.invisible and "INVIS: ON" or "INVIS: OFF")
+    invisBtn.Text              = invisBusy and "INVIS ..." or (Fly.invisible and "INVIS ON" or "INVIS OFF")
     invisBtn.BackgroundColor3  = Fly.invisible and COLOR_ON or COLOR_OFF
     speedLabel.Text            = "Fly: " .. Fly.speed
 
@@ -332,7 +435,7 @@ local function updateUI()
 end
 
 -- ย่อ/ขยายหน้าต่าง: ซ่อนทุกอย่างยกเว้นแถบชื่อ
-local keepVisible = { [title] = true, [closeBtn] = true, [minBtn] = true }
+local keepVisible = { [title] = true, [closeBtn] = true, [minBtn] = true, [tpPanel] = true }
 local function setMinimized(state)
     Fly.minimized = state
     for _, child in ipairs(frame:GetChildren()) do
@@ -340,6 +443,7 @@ local function setMinimized(state)
             child.Visible = not state
         end
     end
+    tpPanel.Visible = Fly.tpOpen == true and not state
     frame.Size  = UDim2.fromOffset(FRAME_WIDTH, state and TITLE_HEIGHT or FRAME_HEIGHT)
     minBtn.Text = state and "+" or "—"
 end
@@ -440,6 +544,15 @@ bindHold(downBtn, "down")
 connect(toggleBtn.Activated, function() setFly(not Fly.enabled) end)
 connect(noclipBtn.Activated, function() setNoclip(not Fly.noclip) end)
 connect(minBtn.Activated,       function() setMinimized(not Fly.minimized) end)
+connect(tpBtn.Activated,        function() setTpOpen(not Fly.tpOpen) end)
+
+-- มีคนเข้า/ออกเซิร์ฟ: รีเฟรชรายชื่อถ้าแผงเปิดอยู่
+connect(Players.PlayerAdded, function()
+    if Fly.tpOpen then refreshTpList() end
+end)
+connect(Players.PlayerRemoving, function()
+    if Fly.tpOpen then task.defer(refreshTpList) end
+end)
 connect(walkMinusBtn.Activated, function() changeWalkSpeed(-WALK_STEP) end)
 connect(walkPlusBtn.Activated,  function() changeWalkSpeed(WALK_STEP) end)
 connect(walkLabel.Activated,    resetWalkSpeed)
@@ -485,6 +598,8 @@ connect(UserInputService.InputBegan, function(input, processed)
         setNoclip(not Fly.noclip)
     elseif k == Enum.KeyCode.G then
         setInvisible(not Fly.invisible)
+    elseif k == Enum.KeyCode.T then
+        setTpOpen(not Fly.tpOpen)
     elseif k == Enum.KeyCode.E or k == Enum.KeyCode.Space then
         Fly.up = true
     elseif k == Enum.KeyCode.Q or k == Enum.KeyCode.LeftControl then
