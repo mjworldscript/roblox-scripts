@@ -4,7 +4,7 @@
 
     การควบคุม
       มือถือ : ใช้ปุ่มบน GUI + จอยสติ๊กเดินปกติ (บินไปทางที่กล้องหัน)
-      PC     : F = เปิด/ปิดบิน, N = เปิด/ปิด Noclip, G = เปิด/ปิดล่องหน, T = เปิด/ปิดรายชื่อ Teleport, E หรือ Space = ขึ้น, Q หรือ LeftCtrl = ลง, WASD = เคลื่อนที่
+      PC     : F = เปิด/ปิดบิน, N = เปิด/ปิด Noclip, G = เปิด/ปิดล่องหน, T = สลับแท็บ ควบคุม/วาร์ป, H = เปิด/ปิด God mode, E หรือ Space = ขึ้น, Q หรือ LeftCtrl = ลง, WASD = เคลื่อนที่
 ]]
 
 local Players          = game:GetService("Players")
@@ -243,13 +243,19 @@ gui.ResetOnSpawn   = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent         = getGuiParent()
 
-local frame = Instance.new("Frame")
-local FRAME_WIDTH      = 190
-local FRAME_HEIGHT     = 302
-local TITLE_HEIGHT     = 30
+local FRAME_WIDTH  = 190
+local FRAME_HEIGHT = 304
+local TITLE_HEIGHT = 30
+local TAB_HEIGHT   = 26
+local PAGE_TOP     = TITLE_HEIGHT + TAB_HEIGHT + 6 -- เนื้อหาแต่ละแท็บเริ่มที่ y นี้
+local ROW          = 34                            -- ความสูงปุ่มแต่ละแถว
+local GAP          = 6
 
+local COLOR_TAB_ACTIVE = Color3.fromRGB(70, 100, 190)
+
+local frame = Instance.new("Frame")
 frame.Size             = UDim2.fromOffset(FRAME_WIDTH, FRAME_HEIGHT)
-frame.Position         = UDim2.new(0, 20, 0.35, 0)
+frame.Position         = UDim2.new(0, 20, 0, 8) -- มุมบนซ้าย ใต้แถบเมนู Roblox ให้พอดีจอมือถือแนวนอน
 frame.BackgroundColor3 = COLOR_BG
 frame.BorderSizePixel  = 0
 frame.Active           = true
@@ -275,46 +281,71 @@ closeBtn.BackgroundColor3 = COLOR_OFF
 local minBtn = makeButton(frame, "—", UDim2.new(1, -60, 0, 4), UDim2.fromOffset(26, 22))
 minBtn.TextSize = 14
 
-local toggleBtn = makeButton(frame, "FLY: OFF", UDim2.fromOffset(10, 36), UDim2.new(1, -20, 0, 38))
+------------------------------------------------------------------------
+-- แท็บ: ควบคุม | วาร์ป
+------------------------------------------------------------------------
+local tabControlBtn = makeButton(frame, "ควบคุม", UDim2.fromOffset(10, TITLE_HEIGHT), UDim2.new(0.5, -12, 0, TAB_HEIGHT))
+local tabWarpBtn    = makeButton(frame, "วาร์ป",  UDim2.new(0.5, 2, 0, TITLE_HEIGHT), UDim2.new(0.5, -12, 0, TAB_HEIGHT))
+tabControlBtn.TextSize = 14
+tabWarpBtn.TextSize    = 14
+
+local function makePage()
+    local page = Instance.new("Frame")
+    page.BackgroundTransparency = 1
+    page.Position               = UDim2.fromOffset(0, PAGE_TOP)
+    page.Size                   = UDim2.new(1, 0, 1, -PAGE_TOP)
+    page.Parent                 = frame
+    return page
+end
+
+local controlPage = makePage()
+local warpPage    = makePage()
+warpPage.Visible  = false
+
+-- y ของแถวที่ n (เริ่มที่ 0) ในหน้าแท็บ
+local function rowY(n) return n * (ROW + GAP) end
+
+------------------------------------------------------------------------
+-- แท็บ "ควบคุม"
+------------------------------------------------------------------------
+local toggleBtn = makeButton(controlPage, "FLY: OFF", UDim2.fromOffset(10, rowY(0)), UDim2.new(1, -20, 0, ROW))
 toggleBtn.BackgroundColor3 = COLOR_OFF
 
-local upBtn   = makeButton(frame, "▲ ขึ้น", UDim2.fromOffset(10, 80), UDim2.new(0.5, -14, 0, 38))
-local downBtn = makeButton(frame, "▼ ลง",  UDim2.new(0.5, 4, 0, 80), UDim2.new(0.5, -14, 0, 38))
+local upBtn   = makeButton(controlPage, "▲ ขึ้น", UDim2.fromOffset(10, rowY(1)), UDim2.new(0.5, -14, 0, ROW))
+local downBtn = makeButton(controlPage, "▼ ลง",  UDim2.new(0.5, 4, 0, rowY(1)), UDim2.new(0.5, -14, 0, ROW))
 
-local noclipBtn = makeButton(frame, "NOCLIP OFF", UDim2.fromOffset(10, 124), UDim2.new(0.5, -14, 0, 38))
+local noclipBtn = makeButton(controlPage, "NOCLIP OFF", UDim2.fromOffset(10, rowY(2)), UDim2.new(0.5, -14, 0, ROW))
 noclipBtn.BackgroundColor3 = COLOR_OFF
 noclipBtn.TextSize = 13
 
-local invisBtn = makeButton(frame, "INVIS OFF", UDim2.new(0.5, 4, 0, 124), UDim2.new(0.5, -14, 0, 38))
+local invisBtn = makeButton(controlPage, "INVIS OFF", UDim2.new(0.5, 4, 0, rowY(2)), UDim2.new(0.5, -14, 0, ROW))
 invisBtn.BackgroundColor3 = COLOR_OFF
 invisBtn.TextSize = 13
 
-local tpBtn = makeButton(frame, "TELEPORT ▶", UDim2.fromOffset(10, 168), UDim2.new(1, -20, 0, 38))
+local godBtn = makeButton(controlPage, "GOD: OFF", UDim2.fromOffset(10, rowY(3)), UDim2.new(1, -20, 0, ROW))
+godBtn.BackgroundColor3 = COLOR_OFF
 
-local minusBtn = makeButton(frame, "−", UDim2.fromOffset(10, 212), UDim2.fromOffset(38, 36))
-local plusBtn  = makeButton(frame, "+", UDim2.new(1, -48, 0, 212), UDim2.fromOffset(38, 36))
+local function makeValueLabel(class, y)
+    local l = Instance.new(class)
+    l.Size                   = UDim2.new(1, -116, 0, ROW)
+    l.Position               = UDim2.fromOffset(58, y)
+    l.BackgroundTransparency = 1
+    l.TextColor3             = COLOR_TEXT
+    l.Font                   = Enum.Font.Gotham
+    l.TextSize               = 15
+    l.Parent                 = controlPage
+    return l
+end
 
-local speedLabel = Instance.new("TextLabel")
-speedLabel.Size                   = UDim2.new(1, -116, 0, 36)
-speedLabel.Position               = UDim2.fromOffset(58, 212)
-speedLabel.BackgroundTransparency = 1
-speedLabel.TextColor3             = COLOR_TEXT
-speedLabel.Font                   = Enum.Font.Gotham
-speedLabel.TextSize               = 15
-speedLabel.Parent                 = frame
+-- แถวความเร็วบิน
+local minusBtn   = makeButton(controlPage, "−", UDim2.fromOffset(10, rowY(4)), UDim2.fromOffset(38, ROW))
+local plusBtn    = makeButton(controlPage, "+", UDim2.new(1, -48, 0, rowY(4)), UDim2.fromOffset(38, ROW))
+local speedLabel = makeValueLabel("TextLabel", rowY(4))
 
 -- แถวความเร็ววิ่ง (กดที่ตัวเลขเพื่อรีเซ็ตกลับค่าเดิมของเกม)
-local walkMinusBtn = makeButton(frame, "−", UDim2.fromOffset(10, 256), UDim2.fromOffset(38, 36))
-local walkPlusBtn  = makeButton(frame, "+", UDim2.new(1, -48, 0, 256), UDim2.fromOffset(38, 36))
-
-local walkLabel = Instance.new("TextButton")
-walkLabel.Size                   = UDim2.new(1, -116, 0, 36)
-walkLabel.Position               = UDim2.fromOffset(58, 256)
-walkLabel.BackgroundTransparency = 1
-walkLabel.TextColor3             = COLOR_TEXT
-walkLabel.Font                   = Enum.Font.Gotham
-walkLabel.TextSize               = 15
-walkLabel.Parent                 = frame
+local walkMinusBtn = makeButton(controlPage, "−", UDim2.fromOffset(10, rowY(5)), UDim2.fromOffset(38, ROW))
+local walkPlusBtn  = makeButton(controlPage, "+", UDim2.new(1, -48, 0, rowY(5)), UDim2.fromOffset(38, ROW))
+local walkLabel    = makeValueLabel("TextButton", rowY(5))
 
 local function getHumanoid()
     local character = player.Character
@@ -322,37 +353,17 @@ local function getHumanoid()
 end
 
 ------------------------------------------------------------------------
--- แผง Teleport: รายชื่อผู้เล่น แสดงด้านขวาของหน้าต่างหลัก
+-- แท็บ "วาร์ป": Checkpoint + รายชื่อผู้เล่น (เลื่อนดูได้)
 ------------------------------------------------------------------------
-local tpPanel = Instance.new("Frame")
-tpPanel.Size             = UDim2.fromOffset(180, FRAME_HEIGHT)
-tpPanel.Position         = UDim2.new(1, 6, 0, 0)
-tpPanel.BackgroundColor3 = COLOR_BG
-tpPanel.BorderSizePixel  = 0
-tpPanel.Visible          = false
-tpPanel.Parent           = frame
-corner(tpPanel, 10)
-
-local tpTitle = Instance.new("TextLabel")
-tpTitle.Size                   = UDim2.new(1, -20, 0, TITLE_HEIGHT)
-tpTitle.Position               = UDim2.fromOffset(10, 0)
-tpTitle.BackgroundTransparency = 1
-tpTitle.Text                   = "วาร์ป"
-tpTitle.TextColor3             = COLOR_TEXT
-tpTitle.Font                   = Enum.Font.GothamBold
-tpTitle.TextSize               = 14
-tpTitle.TextXAlignment         = Enum.TextXAlignment.Left
-tpTitle.Parent                 = tpPanel
-
 local tpList = Instance.new("ScrollingFrame")
-tpList.Position               = UDim2.fromOffset(8, TITLE_HEIGHT + 4)
-tpList.Size                   = UDim2.new(1, -16, 1, -(TITLE_HEIGHT + 12))
+tpList.Position               = UDim2.fromOffset(8, 0)
+tpList.Size                   = UDim2.new(1, -12, 1, -8)
 tpList.BackgroundTransparency = 1
 tpList.BorderSizePixel        = 0
 tpList.ScrollBarThickness     = 4
 tpList.CanvasSize             = UDim2.new()
 tpList.AutomaticCanvasSize    = Enum.AutomaticSize.Y
-tpList.Parent                 = tpPanel
+tpList.Parent                 = warpPage
 
 local tpLayout = Instance.new("UIListLayout")
 tpLayout.Padding   = UDim.new(0, 6)
@@ -502,11 +513,16 @@ refreshTpList = function()
     end
 end
 
-local function setTpOpen(state)
-    Fly.tpOpen = state
-    if state then refreshTpList() end
-    tpPanel.Visible = state and not Fly.minimized
-    tpBtn.Text = state and "TELEPORT ◀" or "TELEPORT ▶"
+-- สลับแท็บ: "control" หรือ "warp"
+Fly.tab = "control"
+local function setTab(name)
+    Fly.tab = name
+    local isWarp = name == "warp"
+    if isWarp then refreshTpList() end
+    controlPage.Visible = not isWarp and not Fly.minimized
+    warpPage.Visible    = isWarp and not Fly.minimized
+    tabControlBtn.BackgroundColor3 = isWarp and COLOR_BTN or COLOR_TAB_ACTIVE
+    tabWarpBtn.BackgroundColor3    = isWarp and COLOR_TAB_ACTIVE or COLOR_BTN
 end
 
 local function updateUI()
@@ -516,6 +532,8 @@ local function updateUI()
     noclipBtn.BackgroundColor3 = Fly.noclip and COLOR_ON or COLOR_OFF
     invisBtn.Text              = invisBusy and "INVIS ..." or (Fly.invisible and "INVIS ON" or "INVIS OFF")
     invisBtn.BackgroundColor3  = Fly.invisible and COLOR_ON or COLOR_OFF
+    godBtn.Text                = Fly.god and "GOD: ON" or "GOD: OFF"
+    godBtn.BackgroundColor3    = Fly.god and COLOR_ON or COLOR_OFF
     speedLabel.Text            = "Fly: " .. Fly.speed
 
     local hum  = getHumanoid()
@@ -524,7 +542,7 @@ local function updateUI()
 end
 
 -- ย่อ/ขยายหน้าต่าง: ซ่อนทุกอย่างยกเว้นแถบชื่อ
-local keepVisible = { [title] = true, [closeBtn] = true, [minBtn] = true, [tpPanel] = true }
+local keepVisible = { [title] = true, [closeBtn] = true, [minBtn] = true }
 local function setMinimized(state)
     Fly.minimized = state
     for _, child in ipairs(frame:GetChildren()) do
@@ -532,7 +550,7 @@ local function setMinimized(state)
             child.Visible = not state
         end
     end
-    tpPanel.Visible = Fly.tpOpen == true and not state
+    setTab(Fly.tab) -- ให้เห็นเฉพาะหน้าของแท็บที่เลือกไว้
     frame.Size  = UDim2.fromOffset(FRAME_WIDTH, state and TITLE_HEIGHT or FRAME_HEIGHT)
     minBtn.Text = state and "+" or "—"
 end
@@ -580,6 +598,40 @@ local function setInvisible(state)
 
     if ok then Fly.invisible = state end
     invisBusy = false
+    updateUI()
+end
+
+------------------------------------------------------------------------
+-- God mode (ทดลอง)
+-- เครื่องเราเป็นคนคุมสถานะของ Humanoid ตัวเอง จึงปิดสถานะ Dead ได้ => เลือดหมดก็ไม่ตาย
+-- หลอดเลือดเต็มจะเห็นแค่บนจอเรา เลือดจริงบนเซิร์ฟเวอร์ยังลดตามปกติ
+------------------------------------------------------------------------
+local godHumanoid, godSaved
+
+local function applyGod(hum)
+    godHumanoid = hum
+    godSaved = { requiresNeck = hum.RequiresNeck, breakJoints = hum.BreakJointsOnDeath }
+    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
+    hum.RequiresNeck       = false -- หัวหลุดก็ไม่ตาย
+    hum.BreakJointsOnDeath = false
+end
+
+local function removeGod()
+    local hum = godHumanoid
+    if hum and hum.Parent then
+        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true) end)
+        if godSaved then
+            hum.RequiresNeck       = godSaved.requiresNeck
+            hum.BreakJointsOnDeath = godSaved.breakJoints
+        end
+    end
+    godHumanoid, godSaved = nil, nil
+end
+
+local function setGod(state)
+    if state == Fly.god then return end
+    Fly.god = state
+    if not state then removeGod() end -- ตอนเปิด Heartbeat จะ apply ให้เอง
     updateUI()
 end
 
@@ -633,14 +685,16 @@ bindHold(downBtn, "down")
 connect(toggleBtn.Activated, function() setFly(not Fly.enabled) end)
 connect(noclipBtn.Activated, function() setNoclip(not Fly.noclip) end)
 connect(minBtn.Activated,       function() setMinimized(not Fly.minimized) end)
-connect(tpBtn.Activated,        function() setTpOpen(not Fly.tpOpen) end)
+connect(tabControlBtn.Activated, function() setTab("control") end)
+connect(tabWarpBtn.Activated,    function() setTab("warp") end)
+connect(godBtn.Activated,       function() setGod(not Fly.god) end)
 
 -- มีคนเข้า/ออกเซิร์ฟ: รีเฟรชรายชื่อถ้าแผงเปิดอยู่
 connect(Players.PlayerAdded, function()
-    if Fly.tpOpen then refreshTpList() end
+    if Fly.tab == "warp" then refreshTpList() end
 end)
 connect(Players.PlayerRemoving, function()
-    if Fly.tpOpen then task.defer(refreshTpList) end
+    if Fly.tab == "warp" then task.defer(refreshTpList) end
 end)
 connect(walkMinusBtn.Activated, function() changeWalkSpeed(-WALK_STEP) end)
 connect(walkPlusBtn.Activated,  function() changeWalkSpeed(WALK_STEP) end)
@@ -688,7 +742,9 @@ connect(UserInputService.InputBegan, function(input, processed)
     elseif k == Enum.KeyCode.G then
         setInvisible(not Fly.invisible)
     elseif k == Enum.KeyCode.T then
-        setTpOpen(not Fly.tpOpen)
+        setTab(Fly.tab == "warp" and "control" or "warp")
+    elseif k == Enum.KeyCode.H then
+        setGod(not Fly.god)
     elseif k == Enum.KeyCode.E or k == Enum.KeyCode.Space then
         Fly.up = true
     elseif k == Enum.KeyCode.Q or k == Enum.KeyCode.LeftControl then
@@ -755,6 +811,17 @@ connect(RunService.Stepped, function()
     end
 end)
 
+-- God mode: ปิดสถานะตายกับ Humanoid ปัจจุบัน (รวมตัวใหม่หลังเกิด) และเติมหลอดเลือดบนจอเรา
+connect(RunService.Heartbeat, function()
+    if not Fly.god then return end
+    local hum = getHumanoid()
+    if not hum then return end
+    if hum ~= godHumanoid then applyGod(hum) end
+    if hum.Health < hum.MaxHealth then
+        hum.Health = hum.MaxHealth
+    end
+end)
+
 -- ล่องหน: หลังฟิสิกส์คำนวณเสร็จ ย้ายตัวไปที่ซ่อนก่อน Roblox ส่งตำแหน่งให้เซิร์ฟเวอร์
 connect(RunService.Heartbeat, function()
     if not Fly.invisible or not (root and root.Parent) then return end
@@ -770,6 +837,7 @@ connect(player.CharacterAdded, function()
     table.clear(originalCollide)
     pcall(function() RunService:UnbindFromRenderStep(INVIS_BIND) end)
     invisRealCF = nil
+    godHumanoid, godSaved = nil, nil -- God ยังเปิดค้างไว้ Heartbeat จะ apply กับตัวใหม่
     table.clear(originalTransparency)
     Fly.invisible = false
     cleanupMovers()
@@ -781,6 +849,7 @@ end)
 ------------------------------------------------------------------------
 function Fly.Destroy()
     if Fly.walkSpeed then resetWalkSpeed() end
+    if Fly.god then Fly.god = false; removeGod() end
     if Fly.enabled then stopFly() end
     Fly.enabled = false
     Fly.noclip = false
@@ -794,4 +863,5 @@ function Fly.Destroy()
 end
 
 updateUI()
+setTab("control")
 notify("โหลดสำเร็จ! กด FLY เพื่อเริ่มบิน")
