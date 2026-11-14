@@ -337,7 +337,7 @@ local tpTitle = Instance.new("TextLabel")
 tpTitle.Size                   = UDim2.new(1, -20, 0, TITLE_HEIGHT)
 tpTitle.Position               = UDim2.fromOffset(10, 0)
 tpTitle.BackgroundTransparency = 1
-tpTitle.Text                   = "เลือกผู้เล่นเพื่อวาร์ป"
+tpTitle.Text                   = "วาร์ป"
 tpTitle.TextColor3             = COLOR_TEXT
 tpTitle.Font                   = Enum.Font.GothamBold
 tpTitle.TextSize               = 14
@@ -359,6 +359,21 @@ tpLayout.Padding   = UDim.new(0, 6)
 tpLayout.SortOrder = Enum.SortOrder.LayoutOrder
 tpLayout.Parent    = tpList
 
+-- วาร์ปตัวเราไปที่ CFrame ที่กำหนด (รองรับตอนล่องหน)
+local function teleportToCF(dest)
+    if not refreshCharacter() then
+        notify("ยังไม่พบตัวละคร")
+        return false
+    end
+    root.AssemblyLinearVelocity = Vector3.zero
+    -- ถ้ากำลังล่องหน ตำแหน่งจริงจะถูกคืนตอน RenderStepped จึงต้องแก้ตำแหน่งจริงด้วย
+    if Fly.invisible and invisRealCF then
+        invisRealCF = dest
+    end
+    root.CFrame = dest
+    return true
+end
+
 local function teleportTo(target)
     local tChar = target.Character
     local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
@@ -366,29 +381,102 @@ local function teleportTo(target)
         notify("ไม่พบตัว " .. target.DisplayName .. " (อาจอยู่ไกลเกินไป)")
         return
     end
-    if not refreshCharacter() then
+    -- ไปยืนข้างหลังเป้าหมาย 3 studs
+    if teleportToCF(tRoot.CFrame * CFrame.new(0, 0, 3)) then
+        notify("วาร์ปไปหา " .. target.DisplayName)
+    end
+end
+
+------------------------------------------------------------------------
+-- Checkpoint: บันทึกตำแหน่งไว้หลายจุด แล้ววาร์ปกลับได้
+-- เก็บไว้ใน getgenv() จุดที่บันทึกจึงยังอยู่แม้รันสคริปต์ซ้ำ (จนกว่าจะออกจากเกม)
+------------------------------------------------------------------------
+local CHECKPOINT_MAX = 10
+env.FlyAnywhereCheckpoints = env.FlyAnywhereCheckpoints or {}
+local checkpoints = env.FlyAnywhereCheckpoints
+local refreshTpList -- ประกาศไว้ก่อน เพราะ saveCheckpoint ต้องเรียก
+
+local function currentRealCF()
+    if not refreshCharacter() then return nil end
+    -- ตอนล่องหน root อาจอยู่ที่ตำแหน่งซ่อน ให้ใช้ตำแหน่งจริงแทน
+    return (Fly.invisible and invisRealCF) or root.CFrame
+end
+
+local function saveCheckpoint()
+    local cf = currentRealCF()
+    if not cf then
         notify("ยังไม่พบตัวละคร")
         return
     end
-
-    local dest = tRoot.CFrame * CFrame.new(0, 0, 3) -- ไปยืนข้างหลังเป้าหมาย 3 studs
-    root.AssemblyLinearVelocity = Vector3.zero
-    -- ถ้ากำลังล่องหน ตำแหน่งจริงจะถูกคืนตอน RenderStepped จึงต้องแก้ตำแหน่งจริงด้วย
-    if Fly.invisible and invisRealCF then
-        invisRealCF = dest
+    if #checkpoints >= CHECKPOINT_MAX then
+        notify("บันทึกได้สูงสุด " .. CHECKPOINT_MAX .. " จุด ลบจุดเก่าก่อน")
+        return
     end
-    root.CFrame = dest
-    notify("วาร์ปไปหา " .. target.DisplayName)
+    env.FlyAnywhereCheckpointCount = (env.FlyAnywhereCheckpointCount or 0) + 1
+    table.insert(checkpoints, { name = "จุด " .. env.FlyAnywhereCheckpointCount, cf = cf })
+    notify("บันทึก จุด " .. env.FlyAnywhereCheckpointCount .. " แล้ว")
+    refreshTpList()
 end
 
-local function refreshTpList()
+local function makeSectionLabel(text, order)
+    local l = Instance.new("TextLabel")
+    l.Size                   = UDim2.new(1, -6, 0, 20)
+    l.BackgroundTransparency = 1
+    l.Text                   = text
+    l.TextColor3             = Color3.fromRGB(160, 160, 175)
+    l.Font                   = Enum.Font.GothamBold
+    l.TextSize               = 12
+    l.TextXAlignment         = Enum.TextXAlignment.Left
+    l.LayoutOrder            = order
+    l.Parent                 = tpList
+    return l
+end
+
+refreshTpList = function()
     for _, child in ipairs(tpList:GetChildren()) do
         if child:IsA("GuiObject") then child:Destroy() end
     end
+    local order = 0
+    local function nextOrder() order += 1; return order end
+
+    -- ส่วนที่ 1: Checkpoint
+    makeSectionLabel("CHECKPOINT", nextOrder())
+
+    local saveBtn = makeButton(tpList, "＋ บันทึกจุดนี้", UDim2.new(), UDim2.new(1, -6, 0, 36))
+    saveBtn.TextSize         = 14
+    saveBtn.BackgroundColor3 = COLOR_ON
+    saveBtn.LayoutOrder      = nextOrder()
+    saveBtn.Activated:Connect(saveCheckpoint)
+
+    for index, cp in ipairs(checkpoints) do
+        local row = Instance.new("Frame")
+        row.Size                   = UDim2.new(1, -6, 0, 40)
+        row.BackgroundTransparency = 1
+        row.LayoutOrder            = nextOrder()
+        row.Parent                 = tpList
+
+        local p = cp.cf.Position
+        local go = makeButton(row, string.format("%s\n%d, %d, %d", cp.name, p.X, p.Y, p.Z),
+            UDim2.new(), UDim2.new(1, -40, 1, 0))
+        go.TextSize = 13
+        go.Activated:Connect(function()
+            if teleportToCF(cp.cf) then notify("วาร์ปไป " .. cp.name) end
+        end)
+
+        local del = makeButton(row, "×", UDim2.new(1, -34, 0, 0), UDim2.new(0, 34, 1, 0))
+        del.BackgroundColor3 = COLOR_OFF
+        del.Activated:Connect(function()
+            table.remove(checkpoints, index)
+            refreshTpList()
+        end)
+    end
+
+    -- ส่วนที่ 2: ผู้เล่น
+    makeSectionLabel("ผู้เล่น", nextOrder())
 
     local others = {}
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player then table.insert(others, p) end
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl ~= player then table.insert(others, pl) end
     end
     table.sort(others, function(a, b) return a.DisplayName:lower() < b.DisplayName:lower() end)
 
@@ -400,16 +488,17 @@ local function refreshTpList()
         empty.TextColor3             = COLOR_TEXT
         empty.Font                   = Enum.Font.Gotham
         empty.TextSize               = 13
+        empty.LayoutOrder            = nextOrder()
         empty.Parent                 = tpList
         return
     end
 
-    for i, p in ipairs(others) do
-        local b = makeButton(tpList, p.DisplayName .. "\n@" .. p.Name, UDim2.new(), UDim2.new(1, -6, 0, 40))
+    for _, pl in ipairs(others) do
+        local b = makeButton(tpList, pl.DisplayName .. "\n@" .. pl.Name, UDim2.new(), UDim2.new(1, -6, 0, 40))
         b.TextSize     = 13
         b.TextTruncate = Enum.TextTruncate.AtEnd
-        b.LayoutOrder  = i
-        b.Activated:Connect(function() teleportTo(p) end) -- ปุ่มถูกลบเมื่อรีเฟรช connection หายไปด้วย
+        b.LayoutOrder  = nextOrder()
+        b.Activated:Connect(function() teleportTo(pl) end) -- ปุ่มถูกลบเมื่อรีเฟรช connection หายไปด้วย
     end
 end
 
