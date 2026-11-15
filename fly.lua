@@ -4,7 +4,7 @@
 
     การควบคุม
       มือถือ : ใช้ปุ่มบน GUI + จอยสติ๊กเดินปกติ (บินไปทางที่กล้องหัน)
-      PC     : F = เปิด/ปิดบิน, N = เปิด/ปิด Noclip, G = เปิด/ปิดล่องหน, T = สลับแท็บ ควบคุม/วาร์ป, H = เปิด/ปิด God mode, E หรือ Space = ขึ้น, Q หรือ LeftCtrl = ลง, WASD = เคลื่อนที่
+      PC     : F = เปิด/ปิดบิน, N = เปิด/ปิด Noclip, G = เปิด/ปิดล่องหน, T = สลับแท็บ ควบคุม/วาร์ป, H = เปิด/ปิด God mode, J = เปิด/ปิด Anti-AFK, E หรือ Space = ขึ้น, Q หรือ LeftCtrl = ลง, WASD = เคลื่อนที่
 ]]
 
 local Players          = game:GetService("Players")
@@ -322,8 +322,13 @@ local invisBtn = makeButton(controlPage, "INVIS OFF", UDim2.new(0.5, 4, 0, rowY(
 invisBtn.BackgroundColor3 = COLOR_OFF
 invisBtn.TextSize = 13
 
-local godBtn = makeButton(controlPage, "GOD: OFF", UDim2.fromOffset(10, rowY(3)), UDim2.new(1, -20, 0, ROW))
+local godBtn = makeButton(controlPage, "GOD OFF", UDim2.fromOffset(10, rowY(3)), UDim2.new(0.5, -14, 0, ROW))
 godBtn.BackgroundColor3 = COLOR_OFF
+godBtn.TextSize = 13
+
+local afkBtn = makeButton(controlPage, "AFK OFF", UDim2.new(0.5, 4, 0, rowY(3)), UDim2.new(0.5, -14, 0, ROW))
+afkBtn.BackgroundColor3 = COLOR_OFF
+afkBtn.TextSize = 13
 
 local function makeValueLabel(class, y)
     local l = Instance.new(class)
@@ -532,8 +537,10 @@ local function updateUI()
     noclipBtn.BackgroundColor3 = Fly.noclip and COLOR_ON or COLOR_OFF
     invisBtn.Text              = invisBusy and "INVIS ..." or (Fly.invisible and "INVIS ON" or "INVIS OFF")
     invisBtn.BackgroundColor3  = Fly.invisible and COLOR_ON or COLOR_OFF
-    godBtn.Text                = Fly.god and "GOD: ON" or "GOD: OFF"
+    godBtn.Text                = Fly.god and "GOD ON" or "GOD OFF"
     godBtn.BackgroundColor3    = Fly.god and COLOR_ON or COLOR_OFF
+    afkBtn.Text                = Fly.antiAfk and "AFK ON" or "AFK OFF"
+    afkBtn.BackgroundColor3    = Fly.antiAfk and COLOR_ON or COLOR_OFF
     speedLabel.Text            = "Fly: " .. Fly.speed
 
     local hum  = getHumanoid()
@@ -683,6 +690,27 @@ local function setGod(state)
     updateUI()
 end
 
+------------------------------------------------------------------------
+-- Anti-AFK: Roblox จะเตะออกถ้าไม่ขยับ 20 นาที
+-- เมื่อ Roblox แจ้งว่าเราว่าง (player.Idled) ให้จำลองการคลิกขวา 1 ครั้ง ตัวนับเวลาจะรีเซ็ต
+------------------------------------------------------------------------
+local VirtualUser = game:GetService("VirtualUser")
+
+local function setAntiAfk(state)
+    if state == Fly.antiAfk then return end
+    Fly.antiAfk = state
+    notify(state and "Anti-AFK เปิด: ไม่โดนเตะออกเพราะไม่ขยับ" or "Anti-AFK ปิด")
+    updateUI()
+end
+
+connect(player.Idled, function()
+    if not Fly.antiAfk then return end
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end)
+end)
+
 local function changeSpeed(delta)
     Fly.speed = math.clamp(Fly.speed + delta, SPEED_MIN, SPEED_MAX)
     updateUI()
@@ -736,6 +764,7 @@ connect(minBtn.Activated,       function() setMinimized(not Fly.minimized) end)
 connect(tabControlBtn.Activated, function() setTab("control") end)
 connect(tabWarpBtn.Activated,    function() setTab("warp") end)
 connect(godBtn.Activated,       function() setGod(not Fly.god) end)
+connect(afkBtn.Activated,       function() setAntiAfk(not Fly.antiAfk) end)
 
 -- มีคนเข้า/ออกเซิร์ฟ: รีเฟรชรายชื่อถ้าแผงเปิดอยู่
 connect(Players.PlayerAdded, function()
@@ -793,6 +822,8 @@ connect(UserInputService.InputBegan, function(input, processed)
         setTab(Fly.tab == "warp" and "control" or "warp")
     elseif k == Enum.KeyCode.H then
         setGod(not Fly.god)
+    elseif k == Enum.KeyCode.J then
+        setAntiAfk(not Fly.antiAfk)
     elseif k == Enum.KeyCode.E or k == Enum.KeyCode.Space then
         Fly.up = true
     elseif k == Enum.KeyCode.Q or k == Enum.KeyCode.LeftControl then
